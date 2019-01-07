@@ -1,76 +1,58 @@
 # load libraries/functions
-args=(commandArgs(TRUE))
-setwd(".")
+#args=(commandArgs(TRUE))
+#setwd(".")
 
-packages <- c("foreach","doParallel","doRNG","boot","rmutil","mvtnorm","gam","sandwich",
+packages <- c("foreach","doParallel","doRNG","boot","rmutil","mvtnorm","gam","sandwich","ggplot2",
               "devtools","glmnet","data.table","rpart","ranger","nnet","arm","earth","e1071")
-userLib <-  "~/R/R_LIBS_USER"
-.libPaths(userLib)
+# userLib <-  "~/R/R_LIBS_USER"
+# .libPaths(userLib)
 
-ifelse(!dir.exists(userLib), dir.create(userLib), FALSE)
+# ifelse(!dir.exists(userLib), dir.create(userLib), FALSE)
 
 for (package in packages) {
   if (!require(package, character.only=T, quietly=T)) {
-    install.packages(package,lib=userLib, repos='http://lib.stat.cmu.edu/R/CRAN')
+    install.packages(package, repos='http://lib.stat.cmu.edu/R/CRAN')
   }
 }
 
 for (package in packages) {
-  library(package, character.only=T, lib.loc=.libPaths())
+  library(package, character.only=T)
 }
 
-devtools::install_github("ecpolley/SuperLearner",lib=userLib, repos='http://lib.stat.cmu.edu/R/CRAN')
+devtools::install_github("ecpolley/SuperLearner")
 library(SuperLearner)
 
-install.packages("tmle",lib=userLib,repos='http://lib.stat.cmu.edu/R/CRAN')
+install.packages("tmle",repos='http://lib.stat.cmu.edu/R/CRAN')
 library(tmle)
 
 time<-proc.time()
-print(args)
-set.seed(as.numeric(args[[1]]))
 expit <- function(x){ exp(x)/(1+exp(x)) }
 logit <- function(x){ log(x/(1-x)) }
-nsim <- as.numeric(args[[2]])
+nsim <- 10000
 
 cols <- c("ipwPMT","ipwNPT","ipwPMF","ipwNPF",
           "regPMT","regNPT","regPMF","regNPF",
           "aipwPMT","aipwNPT","aipwPMF","aipwNPF",
           "tmlePMT","tmleNPT","tmlePMF","tmleNPF")
-res.est <- data.frame(matrix(nrow=nsim*5,ncol=length(cols)));colnames(res.est) <- cols; res.se <- res.est
+res.est <- data.frame(matrix(nrow=nsim*3,ncol=length(cols)));colnames(res.est) <- cols; res.se <- res.est
+
+sl.lib<-create.Learner("SL.ranger", list(min.node.size = 15))
 
 ##  true value
 true<-6;true
 npDR<-function(counter,pNum,bs=T,bootNum=100){
-  source("create.SL.glmnet.R")
-  source("create.SL.gam.Wrapper.R")
-  source("rangerWrapper.R")
-  source("rangerWrapper1.R")
-  source("rangerWrapper2.R")
-  source("rangerWrapper3.R")
-  source("rangerWrapper4.R")
-  source("rangerWrapper5.R")
-  source("create.SL.xgboost.R")
-  
-  tune = list(ntrees = c(100, 500), max_depth = c(1, 2), minobspernode = 10,
-              shrinkage = c(0.1, 0.01, 0.001))
-  xgb_grid = create.SL.xgboost(tune = tune) #, env = sl_env
-  create.SL.glmnet(alpha = c(0,.5)) #setting alpha = 0 gives LASSO, 1 gives elastic net.
-  create.SL.gam(deg.gam = c(3,4,5)) 
-  sl.lib<-c("SL.glmnet.0","SL.glmnet.0.5","SL.glmnet","SL.rpartPrune","SL.svm",
-            "SL.gam.3","SL.gam.4","SL.gam.5","SL.glm.interaction","SL.earth",
-            "SL.ranger","SL.ranger1","SL.ranger2","SL.ranger3","SL.ranger4","SL.ranger5",
-            "SL.bayesglm","SL.xgboost","SL.mean",xgb_grid$names)
+  set.seed(counter)
   # data management
   i<-counter
-  samp<-rep(1:5,nsim*5)[counter]
-  ss<-c(50,100,200,600,1200)
+  samp<-rep(1:3,nsim*3)[counter]
+  ss<-c(50,200,1200)
   n<-ss[samp]
   p=pNum
   cat("Now running iteration",i,"with a sample size of",n,'\n');flush.console()
   
   # confounders
-  sigma<-matrix(0,nrow=4,ncol=4);diag(sigma)<-1
-  x <- rmvnorm(n, mean=rep(0,4), sigma=sigma)
+  sigma<-matrix(0,nrow=p,ncol=p);diag(sigma)<-1
+  x <- rmvnorm(n, mean=rep(0,p), sigma=sigma)
   
   z<-x
   z[,1]<-exp(x[,1]/2)
@@ -78,26 +60,26 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   z[,3]<-(x[,1]*x[,3]/25+.6)^3
   z[,4]<-(x[,2]*x[,4]+20)^2
 
-  # pdf("eFigure1.pdf",width=6,height=6)
-  # GGally::ggpairs(data.frame(z))
-  # dev.off()
+   # pdf("eFigure1.pdf",width=6,height=6)
+   # GGally::ggpairs(data.frame(z))
+   # dev.off()
   
   # design matrix for outcome model
 
-  muMatT<-model.matrix(as.formula(paste("~(",paste("x[,",1:ncol(x),"]",collapse="+"),")^2")))
+  muMatT<-model.matrix(as.formula(paste("~(",paste("x[,",1:ncol(x),"]",collapse="+"),")")))
   
-  parms3<-c(3.5,2.5,-1,5,2,2.5,1.5,1.5,1.5,1) #,4.25,-2
-  parms4<-c(log(2),log(2.5),log(.5),log(1.5),log(1.75),log(1.5),log(1.25),log(1.25),log(1.25),log(1.25)) #,log(2.25),log(.25)
+  parms3<-c(3.5,2.5,-1,5) #,4.25,-2
+  parms4<-c(log(2),log(2.5),log(.5),log(1.5)) #,log(2.25),log(.25)
   
   beta<-parms3;beta<-c(120,beta)
   # design matrix for propensity score model
-  piMatT<-model.matrix(as.formula(paste("~(",paste("x[,",1:ncol(x),"]",collapse="+"),")^2")))
+  piMatT<-model.matrix(as.formula(paste("~(",paste("x[,",1:ncol(x),"]",collapse="+"),")")))
   theta<-parms4;theta<-c(-.5,theta)
   mu <- muMatT%*%beta
   # propensity score model
   pi <- expit(piMatT%*%theta);r<-1-rbinom(n,1,pi)
   # outcome model: true expsoure effect = 6
-  y<- r*6 + mu + rnorm(n,0,20)
+  y <- r*6 + mu + rnorm(n,0,6)
   
   # induce misspecification
   muMatF<-model.matrix(as.formula(paste("~(",paste("z[,",1:ncol(x),"]",collapse="+"),")")))
@@ -112,20 +94,7 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   
   folds<-c(2,2,3,5,5)[samp]
   cat("Number of cross-validation folds is",folds,'\n');flush.console()
-  tmleNPT <- tmle(Y,A,W,family="gaussian",Q.SL.library=sl.lib,g.SL.library=sl.lib)
-  
-  SL_out.monT<-data.table(N=n,model="outcome",t(tmleNPT$Qinit$coef))
-  SL_exp.monT<-data.table(N=n,model="exposure",t(tmleNPT$g$coef))
-  
-  cbind(t(SL_exp.monT)[-c(1,2),],t(SL_out.monT)[-c(1,2),])
-  
-  if(i==1&samp==1){
-    write.table(SL_out.monT,"SL_outDat_True.txt",sep="\t",row.names=F)
-    write.table(SL_exp.monT,"SL_expDat_True.txt",sep="\t",row.names=F)
-  } else{
-    write.table(SL_out.monT,"SL_outDat_True.txt",sep="\t",row.names=F,col.names=F,append=T)
-    write.table(SL_exp.monT,"SL_expDat_True.txt",sep="\t",row.names=F,col.names=F,append=T)
-  }
+  tmleNPT <- tmle(Y,A,W,family="gaussian",Q.SL.library=sl.lib$names,g.SL.library=sl.lib$names)
   
   pihatPT <- tmlePMT$g$g1W
   swPT<-dat$r*(mean(dat$r)/tmlePMT$g$g1W) + (1-dat$r)*((1-mean(dat$r))/(1-tmlePMT$g$g1W))
@@ -144,20 +113,7 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   tmlePMF <- tmle(Y,A,W,family="gaussian",Qform=tQForm,gform=tgForm)
   
   folds<-c(2,2,3,5,5)[samp]
-  tmleNPF <- tmle(Y,A,W,family="gaussian",Q.SL.library=sl.lib,g.SL.library=sl.lib)
-  
-  SL_out.monF<-data.table(N=n,model="outcome",t(tmleNPF$Qinit$coef))
-  SL_exp.monF<-data.table(N=n,model="exposure",t(tmleNPF$g$coef))
-  
-  cbind(t(SL_exp.monF)[-c(1,2),],t(SL_out.monF)[-c(1,2),])
-  
-  if(i==1&samp==1){
-    write.table(SL_out.monF,"SL_outDat_MisSpec.txt",sep="\t",row.names=F)
-    write.table(SL_exp.monT,"SL_expDat_MisSpec.txt",sep="\t",row.names=F)
-  } else{
-    write.table(SL_out.monT,"SL_outDat_MisSpec.txt",sep="\t",row.names=F,col.names=F,append=T)
-    write.table(SL_exp.monT,"SL_expDat_MisSpec.txt",sep="\t",row.names=F,col.names=F,append=T)
-  }
+  tmleNPF <- tmle(Y,A,W,family="gaussian",Q.SL.library=sl.lib$names,g.SL.library=sl.lib$names)
   
   pihatPF <- tmlePMF$g$g1W
   swPF<-dat$r*(mean(dat$r)/tmlePMF$g$g1W) + (1-dat$r)*((1-mean(dat$r))/(1-tmlePMF$g$g1W))
@@ -168,57 +124,27 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   muhatNPF  <- tmleNPF$Qinit$Q[,2]*A+tmleNPF$Qinit$Q[,1]*(1-A)
   muhatNPF1 <- tmleNPF$Qinit$Q[,2];muhatNPF0 <- tmleNPF$Qinit$Q[,1]
   
-  # propensityPT<-data.frame(pihatPT,dat$r);propensityPT$model<-1;names(propensityPT)[1]<-"pi"
-  # head(propensityPT)
-  # propensityPF<-data.frame(pihatPF,dat$r);propensityPF$model<-2;names(propensityPF)[1]<-"pi"
-  # head(propensityPF)
-  # propensityNT<-data.frame(pihatNPT,dat$r);propensityNT$model<-3;names(propensityNT)[1]<-"pi"
-  # head(propensityNT)
-  # propensityNF<-data.frame(pihatNPF,dat$r);propensityNF$model<-4;names(propensityNF)[1]<-"pi"
-  # head(propensityNF)
-  # propensity<-rbind(propensityPT,propensityPF,propensityNT,propensityNF)
-  # propensity$model<-factor(propensity$model,labels=c("Parametric Corr","Parametric Miss","Nonparametric Corr","Nonparametric Miss"))
-  # propensity$x<-factor(propensity$dat.r,labels=c("Unexposed","Exposed"));propensity$dat.r<-NULL
-  # head(propensity)
-  # 
-  # pdf(file="~/Dropbox/Documents/Research/Papers/SemiparametricInference/eFigure2.pdf",height=8,width=6)
-  # ggplot(propensity,aes(pi,color=x)) + 
-  #   theme_light() + 
-  #   theme(panel.grid.major = element_blank(),
-  #         panel.grid.minor = element_blank()) + 
-  #   labs(x = "Propensity Score",y = "Density") + 
-  #   scale_colour_brewer(palette="Set1") +
-  #   facet_grid(model ~ .) + 
-  #   geom_density()
-  # #Accent, Dark2, Paired, Pastel1, Pastel2, Set1, Set2, Set3
-  # dev.off()
+  #propensity score plot
+  plotDat <- rbind(cbind(data.frame(type="Parametric True",PS=pihatPT,Exposure=as.factor(dat$r),mu=muhatPT,Outcome=dat$y)),
+                   cbind(data.frame(type="Parametric Misspecified",PS=pihatPF,Exposure=as.factor(dat$r),mu=muhatPF,Outcome=dat$y)),
+                   cbind(data.frame(type="Nonparametric True",PS=pihatNPT,Exposure=as.factor(dat$r)),mu=muhatNPT,Outcome=dat$y),
+                   cbind(data.frame(type="Nonarametric Misspecified",PS=pihatNPF,Exposure=as.factor(dat$r),mu=muhatNPF,Outcome=dat$y)))
   
-  # muT<-data.frame(muhatPT,dat$y);muT$model<-1;names(muT)[1]<-"mu"
-  # head(muT)
-  # muF<-data.frame(muhatPF,dat$y);muF$model<-2;names(muF)[1]<-"mu"
-  # head(muF)
-  # muNPT<-data.frame(muhatNPT,dat$y);muNPT$model<-3;names(muNPT)[1]<-"mu"
-  # head(muNPT)
-  # muNPF<-data.frame(muhatNPF,dat$y);muNPF$model<-4;names(muNPF)[1]<-"mu"
-  # head(muNPF)
-  # muDat<-rbind(muT,muF,muNPT,muNPF)
-  # head(muDat)
-  # muDat$model<-factor(muDat$model,labels=c("Parametric Corr","Parametric Miss","Nonparametric Corr","Nonparametric Miss"))
-  # tail(muDat)
-  # 
-  # pdf(file="~/Dropbox/Documents/Research/Papers/SemiparametricInference/eFigure3.pdf",height=10,width=6)
-  # ggplot(muDat,aes(mu,dat.y)) +
-  #   theme_light() +
-  #   theme(panel.grid.major = element_blank(),
-  #         panel.grid.minor = element_blank()) +
-  #   labs(x = "Predicted Y",y = "Observed Y") +
-  #   scale_colour_brewer(palette="Set1") +
-  #   facet_grid(model ~ .) +
-  #   geom_point() + ylim(0,200) + xlim(0,200) +
-  #   geom_abline(slope=1, intercept=c(0,0),color="red",
-  #               linetype="dashed",size=.25)
-  # #Accent, Dark2, Paired, Pastel1, Pastel2, Set1, Set2, Set3
-  # dev.off()
+  group.colors <- c(`1` = "red", `0` = "blue")
+  pdf("eFigure1.pdf",width=6,height=6)
+  ggplot(plotDat) + 
+    geom_density(aes(x=PS,group=Exposure,color=Exposure)) + 
+    facet_wrap(~type) + 
+    scale_color_manual(values=group.colors) +
+    xlab("Propensity Score") + ylab("Density")
+  dev.off()
+  
+  pdf("eFigure2.pdf",width=6,height=6)
+  ggplot(plotDat) + 
+    geom_point(aes(x=mu,y=Outcome),size=.5,alpha=.25) + 
+    facet_wrap(~type) + 
+    xlab("Predicted Outcome") + ylab("Observed Outcome")
+  dev.off()
   
   # compute estimators
   res.est$ipwPMT[i] <- coef(lm(y~r,data=dat,weights=swPT))[2] 
@@ -246,21 +172,21 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   # compute closed-form SEs
   mod1<-lm(y~r,data=dat,weights=swPT)
   mod2<-lm(y~r,data=dat,weights=swNPT)
-  res.se$ipwPMT[i] <- vcovHC(mod1)[2,2] 
-  res.se$ipwNPT[i] <- vcovHC(mod2)[2,2] 
-  res.se$aipwPMT[i] <- sd((((2*dat$r-1)*(dat$y - muhatPT))/((2*dat$r-1)*pihatPT + (1-dat$r)) + muhatPT1 - muhatPT0))
-  res.se$aipwNPT[i] <- sd((((2*dat$r-1)*(dat$y - muhatNPT))/((2*dat$r-1)*pihatNPT + (1-dat$r)) + muhatNPT1 - muhatNPT0))
-  res.se$tmlePMT[i] <- sqrt(tmlePMT$estimates$ATE$var.psi)*sqrt(n)
-  res.se$tmleNPT[i] <- sqrt(tmleNPT$estimates$ATE$var.psi)*sqrt(n)
+  res.se$ipwPMT[i] <- sqrt(vcovHC(mod1,type = "HC")[2,2])
+  res.se$ipwNPT[i] <- sqrt(vcovHC(mod2,type = "HC")[2,2])
+  res.se$aipwPMT[i] <- sd((((2*dat$r-1)*(dat$y - muhatPT))/((2*dat$r-1)*pihatPT + (1-dat$r)) + muhatPT1 - muhatPT0))/sqrt(n)
+  res.se$aipwNPT[i] <- sd((((2*dat$r-1)*(dat$y - muhatNPT))/((2*dat$r-1)*pihatNPT + (1-dat$r)) + muhatNPT1 - muhatNPT0))/sqrt(n)
+  res.se$tmlePMT[i] <- sqrt(tmlePMT$estimates$ATE$var.psi)
+  res.se$tmleNPT[i] <- sqrt(tmleNPT$estimates$ATE$var.psi)
   
   mod1<-lm(y~r,data=dat,weights=swPF)
   mod2<-lm(y~r,data=dat,weights=swNPF)
-  res.se$ipwPMF[i] <- vcovHC(mod1)[2,2] 
-  res.se$ipwNPF[i] <- vcovHC(mod2)[2,2] 
-  res.se$aipwPMF[i] <- sd((((2*dat$r-1)*(dat$y - muhatPF))/((2*dat$r-1)*pihatPF + (1-dat$r)) + muhatPF1 - muhatPF0))
-  res.se$aipwNPF[i] <- sd((((2*dat$r-1)*(dat$y - muhatNPF))/((2*dat$r-1)*pihatNPF + (1-dat$r)) + muhatNPF1 - muhatNPF0))
-  res.se$tmlePMF[i] <- sqrt(tmlePMF$estimates$ATE$var.psi)*sqrt(n)
-  res.se$tmleNPF[i] <- sqrt(tmleNPF$estimates$ATE$var.psi)*sqrt(n)
+  res.se$ipwPMF[i] <- sqrt(vcovHC(mod1,type="HC")[2,2])
+  res.se$ipwNPF[i] <- sqrt(vcovHC(mod2,type="HC")[2,2])
+  res.se$aipwPMF[i] <- sd((((2*dat$r-1)*(dat$y - muhatPF))/((2*dat$r-1)*pihatPF + (1-dat$r)) + muhatPF1 - muhatPF0))/sqrt(n)
+  res.se$aipwNPF[i] <- sd((((2*dat$r-1)*(dat$y - muhatNPF))/((2*dat$r-1)*pihatNPF + (1-dat$r)) + muhatNPF1 - muhatNPF0))/sqrt(n)
+  res.se$tmlePMF[i] <- sqrt(tmlePMF$estimates$ATE$var.psi)
+  res.se$tmleNPF[i] <- sqrt(tmleNPF$estimates$ATE$var.psi)
   
   # compute bootstrap CIs
   datB<- data.frame(z,x,r,y); colnames(datB)[1:(2*ncol(z))] <- c(paste("z",1:ncol(x),sep=""),paste("x",1:ncol(x),sep=""))
@@ -281,70 +207,64 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
     res<-c(meanPT,meanPF)
   }
   bs1 <- boot(datB,plugin1,R=bootNum,dim=p)
-  res.se$regPMT[i] <- sd(bs1$t[,1])*sqrt(n)
-  res.se$regPMF[i] <- sd(bs1$t[,2])*sqrt(n)
+  res.se$regPMT[i] <- sd(bs1$t[,1])
+  res.se$regPMF[i] <- sd(bs1$t[,2])
     
   if (bs==T){
     cat("Bootstrapping Nonparametric",'\n');flush.console()
-    plugin2<-function(d,dim,f){
-      j<-sample(1:nrow(d),nrow(d),replace=T);dat<-d[j,]
-      x<-dat[,c(paste0("x",1:p))]
+    plugin2<-function(d,j,dim,f){
+      x<-d[j,c(paste0("x",1:p))]
       W<-model.matrix(as.formula(paste("~(",paste("x[,",1:dim,"]",collapse="+"),")")))[,-1]
-      Y<-dat$y;A<-as.matrix(dat$r) 
+      Y<-d[j,]$y;A<-as.matrix(d[j,]$r) 
       X=data.frame(cbind(A,W))
       names(X)<-c("A",paste0("x",1:ncol(W)))
-      mumod<-SuperLearner(Y,X,family=gaussian,SL.library=sl.lib,cvControl=list(V=f))
+      mumod<-SuperLearner(Y,X,family=gaussian,SL.library=sl.lib$names,cvControl=list(V=f))
       X$A<-1;muhat1 <- predict(mumod,newdata=X,onlySL=T)$pred
       X$A<-0;muhat0 <- predict(mumod,newdata=X,onlySL=T)$pred
       gT<-mean(muhat1-muhat0)
-      x<-dat[,c(paste0("z",1:p))]
+      
+      x<-d[j,c(paste0("z",1:p))]
       W<-model.matrix(as.formula(paste("~(",paste("x[,",1:dim,"]",collapse="+"),")")))[,-1]
-      Y<-dat$y;A<-as.matrix(dat$r) 
+      Y<-d[j,]$y;A<-as.matrix(d[j,]$r) 
       X=data.frame(cbind(A,W))
       names(X)<-c("A",paste0("x",1:ncol(W)))
-      mumod<-SuperLearner(Y,X,family=gaussian,SL.library=sl.lib,cvControl=list(V=f))
+      mumod<-SuperLearner(Y,X,family=gaussian,SL.library=sl.lib$names,cvControl=list(V=f))
       X$A<-1;muhat1 <- predict(mumod,newdata=X,onlySL=T)$pred
       X$A<-0;muhat0 <- predict(mumod,newdata=X,onlySL=T)$pred
       gF<-mean(muhat1-muhat0)
       g<-c(gT,gF)
       return(g)
     }
-    coreNum<-detectCores()
-    cl <- makeCluster(coreNum)
-    registerDoParallel(cl)
-    clusterCall(cl, function(x) .libPaths(x), .libPaths())
-    clusterExport(cl, sl.lib)
-    pak<-c("tmle","SuperLearner","glmnet","rpart","ranger","nnet","arm","earth")
-    results<-foreach(i=1:bootNum,.packages=pak) %dorng% {
-      b<-plugin2(dat,dim=p,f=folds);b
-    }
-    stopCluster(cl)
-    #results<-lapply(1:bootNum,function(x) plugin2(dat,dim=p,f=folds,misspec=mSpec))
-    results<-do.call(rbind,results)
-    res.se$regNPT[i] <- sd(results[,1])*sqrt(n)
-    res.se$regNPF[i] <- sd(results[,2])*sqrt(n)
+    
+    bs2 <- boot(datB,plugin2,R=bootNum,dim=p,f=folds)
+    res.se$regNPT[i] <- sd(bs2$t[,1])
+    res.se$regNPF[i] <- sd(bs2$t[,2])
   }
   # print updating results
-  res.cov <- res.est-1.96*res.se/sqrt(n) < true & true < res.est+1.96*res.se/sqrt(n)
-  res.width <- (res.est+1.96*res.se/sqrt(n)) - (res.est-1.96*res.se/sqrt(n))
+  res.cov <- res.est-1.96*res.se < true & true < res.est+1.96*res.se
+  res.width <- (res.est+1.96*res.se) - (res.est-1.96*res.se)
   tmp <- data.frame(rbind(c(n,apply(res.est-true,2,mean,na.rm=T)),
-               c(n,apply((res.est-true)^2,2,mean,na.rm=T)),
-               c(n,apply(res.cov,2,mean,na.rm=T)),
-               c(n,apply(res.width,2,mean,na.rm=T))))
+                          c(n,apply((res.est-true)^2,2,mean,na.rm=T)),
+                          c(n,apply(res.cov,2,mean,na.rm=T)),
+                          c(n,apply(res.width,2,mean,na.rm=T))))
+  tmp.se <- data.frame(rbind(c(n,apply(res.se,2,mean,na.rm=T))))
   rownames(tmp)<-c("bias","rmse","cov","width");colnames(tmp)[1]<-"N";print(round(tmp,3));cat('\n');flush.console()
+  colnames(tmp.se)[1]<-"N"
   setDT(tmp, keep.rownames = TRUE)[];colnames(tmp)[1] <- "type"
   
   if(i==1&samp==1){
     write.table(tmp,"results.txt",sep="\t",row.names=F)
+    write.table(tmp.se,"results_se.txt",sep="\t",row.names=F)
   } else{
     write.table(tmp,"results.txt",sep="\t",row.names=F,col.names=F,append=T)
+    write.table(tmp.se,"results_se.txt",sep="\t",row.names=F,col.names=F,append=T)
   }
   return(tmp)
 }
 
-results<-lapply(1:(nsim*5), function(x) npDR(x,pNum=4,bs=F,bootNum=100))
-
+start_time <- Sys.time()
 cores<-detectCores()
 print(cores)
-results<-mclapply(1:(nsim*5), function(x) npDR(x,pNum=4,bs=F,bootNum=100),mc.cores=cores)
-results<-do.call(rbind,results)
+results<-mclapply(1:(nsim*3), function(x) npDR(x,pNum=4,bs=T,bootNum=100),mc.cores=cores,mc.set.seed=F)
+## run time:
+Sys.time() - start_time
