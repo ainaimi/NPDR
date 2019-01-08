@@ -124,27 +124,27 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   muhatNPF  <- tmleNPF$Qinit$Q[,2]*A+tmleNPF$Qinit$Q[,1]*(1-A)
   muhatNPF1 <- tmleNPF$Qinit$Q[,2];muhatNPF0 <- tmleNPF$Qinit$Q[,1]
   
-  #propensity score plot
-  plotDat <- rbind(cbind(data.frame(type="Parametric True",PS=pihatPT,Exposure=as.factor(dat$r),mu=muhatPT,Outcome=dat$y)),
-                   cbind(data.frame(type="Parametric Misspecified",PS=pihatPF,Exposure=as.factor(dat$r),mu=muhatPF,Outcome=dat$y)),
-                   cbind(data.frame(type="Nonparametric True",PS=pihatNPT,Exposure=as.factor(dat$r)),mu=muhatNPT,Outcome=dat$y),
-                   cbind(data.frame(type="Nonarametric Misspecified",PS=pihatNPF,Exposure=as.factor(dat$r),mu=muhatNPF,Outcome=dat$y)))
-  
-  group.colors <- c(`1` = "red", `0` = "blue")
-  pdf("eFigure1.pdf",width=6,height=6)
-  ggplot(plotDat) + 
-    geom_density(aes(x=PS,group=Exposure,color=Exposure)) + 
-    facet_wrap(~type) + 
-    scale_color_manual(values=group.colors) +
-    xlab("Propensity Score") + ylab("Density")
-  dev.off()
-  
-  pdf("eFigure2.pdf",width=6,height=6)
-  ggplot(plotDat) + 
-    geom_point(aes(x=mu,y=Outcome),size=.5,alpha=.25) + 
-    facet_wrap(~type) + 
-    xlab("Predicted Outcome") + ylab("Observed Outcome")
-  dev.off()
+  # #propensity score plot
+  # plotDat <- rbind(cbind(data.frame(type="Parametric True",PS=pihatPT,Exposure=as.factor(dat$r),mu=muhatPT,Outcome=dat$y)),
+  #                  cbind(data.frame(type="Parametric Misspecified",PS=pihatPF,Exposure=as.factor(dat$r),mu=muhatPF,Outcome=dat$y)),
+  #                  cbind(data.frame(type="Nonparametric True",PS=pihatNPT,Exposure=as.factor(dat$r)),mu=muhatNPT,Outcome=dat$y),
+  #                  cbind(data.frame(type="Nonarametric Misspecified",PS=pihatNPF,Exposure=as.factor(dat$r),mu=muhatNPF,Outcome=dat$y)))
+  # 
+  # group.colors <- c(`1` = "red", `0` = "blue")
+  # pdf("eFigure1.pdf",width=6,height=6)
+  # ggplot(plotDat) + 
+  #   geom_density(aes(x=PS,group=Exposure,color=Exposure)) + 
+  #   facet_wrap(~type) + 
+  #   scale_color_manual(values=group.colors) +
+  #   xlab("Propensity Score") + ylab("Density")
+  # dev.off()
+  # 
+  # pdf("eFigure2.pdf",width=6,height=6)
+  # ggplot(plotDat) + 
+  #   geom_point(aes(x=mu,y=Outcome),size=.5,alpha=.25) + 
+  #   facet_wrap(~type) + 
+  #   xlab("Predicted Outcome") + ylab("Observed Outcome")
+  # dev.off()
   
   # compute estimators
   res.est$ipwPMT[i] <- coef(lm(y~r,data=dat,weights=swPT))[2] 
