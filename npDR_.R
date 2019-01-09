@@ -28,7 +28,7 @@ library(tmle)
 time<-proc.time()
 expit <- function(x){ exp(x)/(1+exp(x)) }
 logit <- function(x){ log(x/(1-x)) }
-nsim <- 1
+nsim <- 10
 
 cols <- c("ipwPMT","ipwNPT","ipwPMF","ipwNPF",
           "regPMT","regNPT","regPMF","regNPF",
@@ -98,9 +98,12 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   
   folds<-c(20,10,5)[samp]
   cat("Number of cross-validation folds is",folds,'\n');flush.console()
-  tmleNPT <- tmle(Y,A,W,family="gaussian",Q.SL.library=sl.lib,g.SL.library=sl.lib)
+  tmleNPT <- tmle(Y,A,W,family="gaussian",
+                  Q.SL.library=sl.lib,g.SL.library=sl.lib,
+                  V=folds)
   
-  tmleNPT$g$coef
+  ps.sl.coefNPT <- cbind(n,t(tmleNPT$g$coef))
+  mu.sl.coefNPT <- cbind(n,t(tmleNPT$Qinit$coef))
   
   pihatPT <- tmlePMT$g$g1W
   pihatPT <- ifelse(pihatPT < quantile(pihatPT,c(0.025)),quantile(pihatPT,c(0.025)),pihatPT)
@@ -124,8 +127,12 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   tgForm<-as.formula(paste0("A~", paste(paste0("W",1:ncol(piMatF[,-1])), collapse="+")))
   tmlePMF <- tmle(Y,A,W,family="gaussian",Qform=tQForm,gform=tgForm)
   
-  folds<-c(2,2,3,5,5)[samp]
-  tmleNPF <- tmle(Y,A,W,family="gaussian",Q.SL.library=sl.lib,g.SL.library=sl.lib)
+  tmleNPF <- tmle(Y,A,W,family="gaussian",
+                  Q.SL.library=sl.lib,g.SL.library=sl.lib,
+                  V=folds)
+  
+  ps.sl.coefNPF <- cbind(n,t(tmleNPF$g$coef))
+  mu.sl.coefNPF <- cbind(n,t(tmleNPF$Qinit$coef))
   
   pihatPF <- tmlePMF$g$g1W
   pihatPF <- ifelse(pihatPF < quantile(pihatPF,c(0.025)),quantile(pihatPF,c(0.025)),pihatPF)
@@ -294,14 +301,24 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   setDT(tmp, keep.rownames = TRUE)[];colnames(tmp)[1] <- "type"
   
   if(i==1&samp==1){
-    write.table(tmp,"results.txt",sep="\t",row.names=F)
-    write.table(tmp.se,"results_se.txt",sep="\t",row.names=F)
+    write.table(tmp,"./output/results.txt",sep="\t",row.names=F)
+    write.table(tmp.se,"./output/results_se.txt",sep="\t",row.names=F)
+    write.table(ps.sl.coefNPT,"./output/results_sl-pi_true.txt",sep="\t",row.names=F)
+    write.table(mu.sl.coefNPT,"./output/results_sl-mu_true.txt",sep="\t",row.names=F)
+    write.table(ps.sl.coefNPF,"./output/results_sl-pi_misspec.txt",sep="\t",row.names=F)
+    write.table(mu.sl.coefNPF,"./output/results_sl-mu_misspec.txt",sep="\t",row.names=F)
   } else{
-    write.table(tmp,"results.txt",sep="\t",row.names=F,col.names=F,append=T)
-    write.table(tmp.se,"results_se.txt",sep="\t",row.names=F,col.names=F,append=T)
+    write.table(tmp,"./output/results.txt",sep="\t",row.names=F,col.names=F,append=T)
+    write.table(tmp.se,"./output/results_se.txt",sep="\t",row.names=F,col.names=F,append=T)
+    write.table(ps.sl.coefNPT,"./output/results_sl-pi_true.txt",sep="\t",row.names=F,col.names=F,append=T)
+    write.table(mu.sl.coefNPT,"./output/results_sl-mu_true.txt",sep="\t",row.names=F,col.names=F,append=T)
+    write.table(ps.sl.coefNPF,"./output/results_sl-pi_misspec.txt",sep="\t",row.names=F,col.names=F,append=T)
+    write.table(mu.sl.coefNPF,"./output/results_sl-mu_misspec.txt",sep="\t",row.names=F,col.names=F,append=T)
   }
   return(tmp)
 }
+
+lapply(1:(1*3), function(x) npDR(x,pNum=4,bs=T,bootNum=100))
 
 start_time <- Sys.time()
 cores<-detectCores()
