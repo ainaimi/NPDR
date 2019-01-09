@@ -28,7 +28,7 @@ library(tmle)
 time<-proc.time()
 expit <- function(x){ exp(x)/(1+exp(x)) }
 logit <- function(x){ log(x/(1-x)) }
-nsim <- 10000
+nsim <- 1
 
 cols <- c("ipwPMT","ipwNPT","ipwPMF","ipwNPF",
           "regPMT","regNPT","regPMF","regNPF",
@@ -36,7 +36,10 @@ cols <- c("ipwPMT","ipwNPT","ipwPMF","ipwNPF",
           "tmlePMT","tmleNPT","tmlePMF","tmleNPF")
 res.est <- data.frame(matrix(nrow=nsim*3,ncol=length(cols)));colnames(res.est) <- cols; res.se <- res.est
 
-sl.lib<-create.Learner("SL.ranger", list(min.node.size = 15))
+ranger_learner <- create.Learner("SL.ranger", list(min.node.size = c(30,60)))
+xgboost_learner <- create.Learner("SL.xgboost", list(minobspernode = c(30,60)))
+
+sl.lib <- c(ranger_learner$names,xgboost_learner$names)
 
 ##  true value
 true<-6;true
@@ -77,7 +80,8 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   theta<-parms4;theta<-c(-.5,theta)
   mu <- muMatT%*%beta
   # propensity score model
-  pi <- expit(piMatT%*%theta);r<-1-rbinom(n,1,pi)
+  pi <- expit(piMatT%*%theta);
+  r<-1-rbinom(n,1,pi)
   # outcome model: true expsoure effect = 6
   y <- r*6 + mu + rnorm(n,0,6)
   
@@ -92,13 +96,21 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   tgForm<-as.formula(paste0("A~", paste(paste0("W",1:ncol(piMatT[,-1])), collapse="+")))
   tmlePMT <- tmle(Y,A,W,family="gaussian",Qform=tQForm,gform=tgForm)
   
-  folds<-c(2,2,3,5,5)[samp]
+  folds<-c(20,10,5)[samp]
   cat("Number of cross-validation folds is",folds,'\n');flush.console()
-  tmleNPT <- tmle(Y,A,W,family="gaussian",Q.SL.library=sl.lib$names,g.SL.library=sl.lib$names)
+  tmleNPT <- tmle(Y,A,W,family="gaussian",Q.SL.library=sl.lib,g.SL.library=sl.lib)
+  
+  tmleNPT$g$coef
   
   pihatPT <- tmlePMT$g$g1W
+  pihatPT <- ifelse(pihatPT < quantile(pihatPT,c(0.025)),quantile(pihatPT,c(0.025)),pihatPT)
+  pihatPT <- ifelse(pihatPT > quantile(pihatPT,c(1-0.025)),quantile(pihatPT,c(1-0.025)),pihatPT)  
+  
   swPT<-dat$r*(mean(dat$r)/tmlePMT$g$g1W) + (1-dat$r)*((1-mean(dat$r))/(1-tmlePMT$g$g1W))
   pihatNPT <- tmleNPT$g$g1W
+  pihatNPT <- ifelse(pihatNPT < quantile(pihatNPT,c(0.025)),quantile(pihatNPT,c(0.025)),pihatNPT)
+  pihatNPT <- ifelse(pihatNPT > quantile(pihatNPT,c(1-0.025)),quantile(pihatNPT,c(1-0.025)),pihatNPT)  
+  
   swNPT<-dat$r*(mean(dat$r)/tmleNPT$g$g1W) + (1-dat$r)*((1-mean(dat$r))/(1-tmleNPT$g$g1W))
   muhatPT  <- tmlePMT$Qinit$Q[,2]*A+tmlePMT$Qinit$Q[,1]*(1-A)
   muhatPT1 <- tmlePMT$Qinit$Q[,2];muhatPT0 <- tmlePMT$Qinit$Q[,1]
@@ -113,11 +125,17 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   tmlePMF <- tmle(Y,A,W,family="gaussian",Qform=tQForm,gform=tgForm)
   
   folds<-c(2,2,3,5,5)[samp]
-  tmleNPF <- tmle(Y,A,W,family="gaussian",Q.SL.library=sl.lib$names,g.SL.library=sl.lib$names)
+  tmleNPF <- tmle(Y,A,W,family="gaussian",Q.SL.library=sl.lib,g.SL.library=sl.lib)
   
   pihatPF <- tmlePMF$g$g1W
+  pihatPF <- ifelse(pihatPF < quantile(pihatPF,c(0.025)),quantile(pihatPF,c(0.025)),pihatPF)
+  pihatPF <- ifelse(pihatPF > quantile(pihatPF,c(1-0.025)),quantile(pihatPF,c(1-0.025)),pihatPF)    
+    
   swPF<-dat$r*(mean(dat$r)/tmlePMF$g$g1W) + (1-dat$r)*((1-mean(dat$r))/(1-tmlePMF$g$g1W))
   pihatNPF <- tmleNPF$g$g1W
+  pihatNPF <- ifelse(pihatNPF < quantile(pihatNPF,c(0.025)),quantile(pihatNPF,c(0.025)),pihatNPF)
+  pihatNPF <- ifelse(pihatNPF > quantile(pihatNPF,c(1-0.025)),quantile(pihatNPF,c(1-0.025)),pihatNPF)    
+  
   swNPF<-dat$r*(mean(dat$r)/tmleNPF$g$g1W) + (1-dat$r)*((1-mean(dat$r))/(1-tmleNPF$g$g1W))
   muhatPF  <- tmlePMF$Qinit$Q[,2]*A+tmlePMF$Qinit$Q[,1]*(1-A)
   muhatPF1 <- tmlePMF$Qinit$Q[,2];muhatPF0 <- tmlePMF$Qinit$Q[,1]
@@ -152,8 +170,19 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   res.est$regPMT[i] <- mean(muhatPT1 - muhatPT0)
   res.est$regNPT[i] <- mean(muhatNPT1 - muhatNPT0)
   
-  res.est$aipwPMT[i]  <- mean((((2*dat$r-1)*(dat$y - muhatPT))/((2*dat$r-1)*pihatPT + (1-dat$r)) + muhatPT1 - muhatPT0))
-  res.est$aipwNPT[i]  <- mean((((2*dat$r-1)*(dat$y - muhatNPT))/((2*dat$r-1)*pihatNPT + (1-dat$r)) + muhatNPT1 - muhatNPT0))
+  lower_bound <- min(y) - max(y)
+  upper_bound <- max(y) - min(y)
+  
+  aipwPMT <- mean((((2*dat$r-1)*(dat$y - muhatPT))/((2*dat$r-1)*pihatPT + (1-dat$r)) + muhatPT1 - muhatPT0))
+  aipwPMT <- ifelse(aipwPMT>upper_bound,upper_bound,aipwPMT)
+  aipwPMT <- ifelse(aipwPMT<lower_bound,lower_bound,aipwPMT)
+  
+  aipwNPT <- mean((((2*dat$r-1)*(dat$y - muhatNPT))/((2*dat$r-1)*pihatNPT + (1-dat$r)) + muhatNPT1 - muhatNPT0))
+  aipwNPT <- ifelse(aipwNPT>upper_bound,upper_bound,aipwNPT)
+  aipwNPT <- ifelse(aipwNPT<lower_bound,lower_bound,aipwNPT)
+  
+  res.est$aipwPMT[i]  <- aipwPMT
+  res.est$aipwNPT[i]  <- aipwNPT
   
   res.est$tmlePMT[i]<-tmlePMT$estimates$ATE$psi
   res.est$tmleNPT[i]<-tmleNPT$estimates$ATE$psi
@@ -163,8 +192,20 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
   res.est$regPMF[i] <- mean(muhatPF1 - muhatPF0)
   res.est$regNPF[i] <- mean(muhatNPF1 - muhatNPF0)
   
-  res.est$aipwPMF[i]  <- mean((((2*dat$r-1)*(dat$y - muhatPF))/((2*dat$r-1)*pihatPF + (1-dat$r)) + muhatPF1 - muhatPF0))
-  res.est$aipwNPF[i]  <- mean((((2*dat$r-1)*(dat$y - muhatNPF))/((2*dat$r-1)*pihatNPF + (1-dat$r)) + muhatNPF1 - muhatNPF0))
+  ## truncate PS for AIPW and IPW 
+  ## bound AIPW estimator uusing \psi \in [y_min - y_max, y_max - y_min]
+  
+  aipwPMF <- mean((((2*dat$r-1)*(dat$y - muhatPF))/((2*dat$r-1)*pihatPF + (1-dat$r)) + muhatPF1 - muhatPF0))
+  aipwPMF <- ifelse(aipwPMF>upper_bound,upper_bound,aipwPMF)
+  aipwPMF <- ifelse(aipwPMF<lower_bound,lower_bound,aipwPMF)
+  
+  aipwNPF <- mean((((2*dat$r-1)*(dat$y - muhatNPF))/((2*dat$r-1)*pihatNPF + (1-dat$r)) + muhatNPF1 - muhatNPF0))
+  aipwNPF <- ifelse(aipwNPF>upper_bound,upper_bound,aipwNPF)
+  aipwNPF <- ifelse(aipwNPF<lower_bound,lower_bound,aipwNPF)
+  
+  
+  res.est$aipwPMF[i]  <- aipwPMF
+  res.est$aipwNPF[i]  <- aipwNPF
   
   res.est$tmlePMF[i]<-tmlePMF$estimates$ATE$psi
   res.est$tmleNPF[i]<-tmleNPF$estimates$ATE$psi
@@ -218,7 +259,7 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
       Y<-d[j,]$y;A<-as.matrix(d[j,]$r) 
       X=data.frame(cbind(A,W))
       names(X)<-c("A",paste0("x",1:ncol(W)))
-      mumod<-SuperLearner(Y,X,family=gaussian,SL.library=sl.lib$names,cvControl=list(V=f))
+      mumod<-SuperLearner(Y,X,family=gaussian,SL.library=sl.lib,cvControl=list(V=f))
       X$A<-1;muhat1 <- predict(mumod,newdata=X,onlySL=T)$pred
       X$A<-0;muhat0 <- predict(mumod,newdata=X,onlySL=T)$pred
       gT<-mean(muhat1-muhat0)
@@ -228,7 +269,7 @@ npDR<-function(counter,pNum,bs=T,bootNum=100){
       Y<-d[j,]$y;A<-as.matrix(d[j,]$r) 
       X=data.frame(cbind(A,W))
       names(X)<-c("A",paste0("x",1:ncol(W)))
-      mumod<-SuperLearner(Y,X,family=gaussian,SL.library=sl.lib$names,cvControl=list(V=f))
+      mumod<-SuperLearner(Y,X,family=gaussian,SL.library=sl.lib,cvControl=list(V=f))
       X$A<-1;muhat1 <- predict(mumod,newdata=X,onlySL=T)$pred
       X$A<-0;muhat0 <- predict(mumod,newdata=X,onlySL=T)$pred
       gF<-mean(muhat1-muhat0)
