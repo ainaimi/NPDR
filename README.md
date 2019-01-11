@@ -4,4 +4,4 @@ The in progress R code in this repository is being used to update results for th
 
 The npDR_.R file runs the simulations, and outputs a results.txt file. 
 
-
+This work is supported by NIH Grant R01 HD093602.
